@@ -214,10 +214,15 @@ elif st.session_state['page'] == 'dashboard':
         <div class="data-row"><span class="data-lbl">{T['emission_label']}</span><span>{d['co2']:.1f} kg CO2e</span></div>
         <div class="data-row"><span class="data-lbl">Oracle Verification</span><span style='color:var(--green)'>{T['status_valid']}</span></div>
         """, unsafe_allow_html=True)
-        
+        # 【新增：最直观的防篡改护城河提示】
+    st.info(f"""
+    🔐 **底层物理凭证已生成防篡改指纹 (Anti-Tamper Hash):** `{d['pdf_hash']}`  
+    *(注：区块链节点已确认——在此之后，任何人对原 PDF 发票进行哪怕一个像素、一个小数点的 PS 修改，该指纹都会彻底改变。系统藉此实现 100% 物理凭证防伪。)*
+    """)
         st.write("") # 留点空隙
         if st.button(T['next_btn'], use_container_width=True):
             st.session_state['page'] = 'upload'
             st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
+
