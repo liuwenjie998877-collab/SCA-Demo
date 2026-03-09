@@ -1,6 +1,7 @@
+import hashlib
+import pandas as pd
 import streamlit as st
 import json
-import hashlib
 import time
 from google import genai
 from google.genai import types
@@ -123,10 +124,13 @@ if st.session_state['page'] == 'upload':
 
     if uploaded_file:
         if st.button(T['upload_btn'], use_container_width=True):
-            with st.spinner("Oracle Processing..."):
+            with st.spinner("Oracle Processing & Hashing..."):
                 try:
+                    # 读取文件并生成真实的防篡改哈希
                     file_bytes = uploaded_file.read()
                     pdf_hash = hashlib.sha256(file_bytes).hexdigest()
+                    
+                    # 调用 Gemini 预言机
                     client = genai.Client(api_key=API_KEY)
                     prompt = "Analyze invoice. Return JSON: { 'material_type': 'aluminum_virgin' or 'aluminum_recycled', 'weight': number, 'supplier': 'name' }"
                     response = client.models.generate_content(
@@ -135,18 +139,27 @@ if st.session_state['page'] == 'upload':
                     )
                     res = json.loads(response.text.replace("```json", "").replace("```", "").strip())
 
+                    # 计算风控逻辑
                     factor = SCA_CONFIG["FACTORS"].get(res['material_type'], 10.0)
                     total_co2 = res['weight'] * factor
-                    # 计算评级逻辑简写
                     rating, rate, status, desc = "D", "8.5%", "bad", "Tier 4"
                     for k, v in SCA_CONFIG["THRESHOLDS"].items():
                         if total_co2 <= v["limit"]:
                             rating, rate, status, desc = k, v["rate"], v["status"], v["desc"]
                             break
 
-                    st.session_state['history'].append(
-                        {"time": time.strftime("%H:%M:%S"), "supplier": res['supplier'], "rating": rating, "rate": rate,
-                         "hash": pdf_hash[:12]})
+                    # 【Web3 改造】：生成区块高度和合约状态，存入历史流水
+                    block_num = 104200 + len(st.session_state['history'])
+                    contract_status = "✅ 执行放款 (Executed)" if status == "good" else "🛑 拦截提款 (Reverted)"
+                    
+                    st.session_state['history'].append({
+                        "block": f"#{block_num}",
+                        "time": time.strftime("%H:%M:%S"), 
+                        "supplier": res['supplier'], 
+                        "hash": f"0x{pdf_hash[:16]}...",
+                        "contract": contract_status
+                    })
+                    
                     st.session_state['analysis'] = {'res': res, 'pdf_hash': pdf_hash, 'rating': rating, 'rate': rate,
                                                     'co2': total_co2, 'status': status, 'desc': desc}
                     st.session_state['page'] = 'dashboard'
@@ -155,11 +168,14 @@ if st.session_state['page'] == 'upload':
                     st.error(f"Error: {e}")
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # 【Web3 改造】：底部的区块链账本视图
     if st.session_state['history']:
+        st.divider()
         st.markdown(f"<h4 style='font-family: var(--mono);'>{T['history_title']}</h4>", unsafe_allow_html=True)
-        h_html = f"<table class='history-table'><tr><th>Time</th><th>{T['supplier']}</th><th>Rating</th><th>Rate</th><th>{T['tx_hash']}</th></tr>"
+        # 加入了 Block 和 Smart Contract 列
+        h_html = f"<table class='history-table'><tr><th>Block</th><th>Time</th><th>{T['supplier']}</th><th>{T['tx_hash']}</th><th>Smart Contract Status</th></tr>"
         for h in reversed(st.session_state['history']):
-            h_html += f"<tr><td>{h['time']}</td><td>{h['supplier']}</td><td>{h['rating']}</td><td>{h['rate']}</td><td>{h['hash']}</td></tr>"
+            h_html += f"<tr><td><b>{h['block']}</b></td><td>{h['time']}</td><td>{h['supplier']}</td><td style='color:var(--teal);'>{h['hash']}</td><td>{h['contract']}</td></tr>"
         st.markdown(h_html + "</table>", unsafe_allow_html=True)
 
 # ==========================================
@@ -177,11 +193,18 @@ elif st.session_state['page'] == 'dashboard':
         <div class="data-row"><span class="data-lbl">{T['supplier']}</span><span>{d['res']['supplier']}</span></div>
         <div class="data-row"><span class="data-lbl">{T['material']}</span><span>{d['res']['material_type']}</span></div>
         <div class="data-row"><span class="data-lbl">{T['weight']}</span><span>{d['res']['weight']} KG</span></div>
-        <div class="data-row"><span class="data-lbl">{T['anchor']}</span><span style='font-size:10px; color:var(--teal)'>{d['pdf_hash'][:30]}...</span></div>
+        <div class="data-row"><span class="data-lbl">{T['anchor']}</span><span style='font-size:10px; color:var(--teal)'>0x{d['pdf_hash'][:30]}...</span></div>
         </div>""", unsafe_allow_html=True)
 
     with c2:
         st.markdown(f"<div class='panel'><div class='panel-title'>{T['bank_side']}</div>", unsafe_allow_html=True)
+        
+        # 【Web3 改造】：银行端的智能合约执行提示
+        if d['status'] == 'good':
+            st.success("⚙️ **智能合约已触发：ESG合规，自动执行放款 (Smart Contract Executed)**")
+        else:
+            st.error("🛑 **智能合约熔断：碳敞口超标，拦截提款 (Smart Contract Reverted)**")
+
         st.markdown(f"""
         <div class="hero-metric {d['status']}">
             <div style='font-size:10px; font-weight:700'>{T['rating_label']}</div>
@@ -189,11 +212,12 @@ elif st.session_state['page'] == 'dashboard':
             <div style='font-size:12px'>{d['desc']}</div>
         </div>
         <div class="data-row"><span class="data-lbl">{T['emission_label']}</span><span>{d['co2']:.1f} kg CO2e</span></div>
-        <div class="data-row"><span class="data-lbl">Verification</span><span style='color:var(--green)'>{T['status_valid']}</span></div>
+        <div class="data-row"><span class="data-lbl">Oracle Verification</span><span style='color:var(--green)'>{T['status_valid']}</span></div>
         """, unsafe_allow_html=True)
+        
+        st.write("") # 留点空隙
         if st.button(T['next_btn'], use_container_width=True):
-            st.session_state['page'] = 'upload';
+            st.session_state['page'] = 'upload'
             st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
-
