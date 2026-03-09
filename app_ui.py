@@ -7,7 +7,7 @@ from google.genai import types
 
 # --- 1. 页面配置 ---
 st.set_page_config(page_title="SupplyChain Alpha (SCA) 2.0", layout="wide")
-API_KEY = st.secrets["AIzaSyA_mY0gBXiIttI5hiKfsW5jyBahTK8AVZQ"]
+API_KEY = st.secrets["GEMINI_API_KEY"]
 
 # --- 2. 语言包配置 (i18n) ---
 LANG_DICT = {
@@ -196,3 +196,4 @@ elif st.session_state['page'] == 'dashboard':
             st.rerun()
 
         st.markdown("</div>", unsafe_allow_html=True)
+
