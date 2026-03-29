@@ -10,6 +10,15 @@ from google.genai import types
 st.set_page_config(page_title="SupplyChain Alpha (SCA) 2.0", layout="wide")
 API_KEY = st.secrets["GEMINI_API_KEY"]
 
+# 【硬核护城河】：从 database 文件夹动态加载 UK 官方 GHG 数据库
+@st.cache_data
+def load_official_ghg_database():
+    try:
+        # 你的文件叫 Material_use.xlsx，跳过前4行无关的表头说明
+        df = pd.read_excel("database/Material_use.xlsx", skiprows=4)
+        return df
+    except Exception as e:
+        return None
 # --- 2. 语言包配置 (i18n) ---
 LANG_DICT = {
     "English": {
