@@ -149,8 +149,22 @@ if st.session_state['page'] == 'upload':
                     res = json.loads(response.text.replace("```json", "").replace("```", "").strip())
 
                     # 计算风控逻辑
-                    factor = SCA_CONFIG["FACTORS"].get(res['material_type'], 10.0)
-                    total_co2 = res['weight'] * factor
+                    # 【核心优化】：将 AI 提取的物料去官方数据库进行映射 (Mapping)
+                    official_df = load_official_ghg_database()
+                    official_factor = 10.0 # 如果没查到，给一个默认因子
+                    
+                    if official_df is not None:
+                        try:
+                            # 在官方 Excel 的第2列(物料名)里搜索 AI 提取出来的名字
+                            match = official_df[official_df.iloc[:, 1].str.contains(res['material_type'], case=False, na=False)]
+                            if not match.empty:
+                                # 提取官方规定的 kg CO2e 因子 (在第4列)
+                                official_factor = float(match.iloc)
+                        except:
+                            pass
+                    
+                    # 官方库的因子是“每吨”的碳排，所以重量(KG)要除以1000转成吨
+                    total_co2 = (res['weight'] / 1000.0) * official_factor
                     rating, rate, status, desc = "D", "8.5%", "bad", "Tier 4"
                     for k, v in SCA_CONFIG["THRESHOLDS"].items():
                         if total_co2 <= v["limit"]:
